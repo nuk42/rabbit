@@ -1,0 +1,8 @@
+{
+    "8_0": "res/audio/rabbit_action_hit_dough1.mp3",
+    "8_1": "res/audio/rabbit_action_hit_dough2.mp3",
+    "8_2": "res/audio/rabbit_action_hit_dough3.mp3",
+    "8_3": "res/audio/rabbit_action_hit_dough4.mp3",
+    "success": "res/audio/bonus.mp3",
+    "fail": "res/audio/rabbit_fail.mp3"
+}

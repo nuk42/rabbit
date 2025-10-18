@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>연타 연습</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="192x192" href="favicon.ico">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body oncontextmenu="return false;" onselectstart="return false;">
+    <div id="loading-overlay">
+        <div class="loading-text">로딩 중...</div>
+    </div>
+    <div id="app-container">
+        <div id="game-screen"></div>
+
+        <!-- 체크박스: 게임 화면 위에 항상 표시 -->
+        <div id="game-controls">
+            <label class="count-label"><input type="checkbox" class="count-checkbox" value="4" checked> 4개</label>
+            <label class="count-label"><input type="checkbox" class="count-checkbox" value="6" checked> 6개</label>
+            <label class="count-label"><input type="checkbox" class="count-checkbox" value="8" checked> 8개</label>
+            <label class="count-label"><input type="checkbox" class="count-checkbox" value="10" checked> 10개</label>
+        </div>
+
+    </div>
+    <script src="script.js" type="module"></script>
+</body>
+</html>
