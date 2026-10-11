@@ -1,16 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    // ── Elements ──
-    const gameScreen   = document.getElementById('game-screen');
+    const gameScreen     = document.getElementById('game-screen');
     const loadingOverlay = document.getElementById('loading-overlay');
 
-    // ── Audio state ──
     let audioContext;
     let sfxAudioMap = {};
     let lastDoughHitTime = 0;
     let doughSequenceCounter = 0;
 
-    // ── Game state ──
     let gamePattern = [];
     let currentGameIndex = 0;
     let gameFailed = false;
@@ -18,17 +15,36 @@ document.addEventListener('DOMContentLoaded', () => {
     let missAnimationInterval = null;
     let nextRoundTimeoutId = null;
     let mashSuccessTimer = null;
+    let roundTimer = null;
     let firstPressTime = 0;
     let lastPressTime = 0;
-    let lastScore = null; // { count, totalTimeMs, isNewBest }
+    let lastScore = null;
 
-    // ── Asset arrays ──
+    // --- Okma mode state ---
+    let okmaBotActionTimeout = null;
+    let okmaRabbitPressCount = 0;
+
+    // --- Tab / difficulty ---
+    let activeTab = 'mash'; // 'mash' | 'okma'
+    let okmaDifficulty = 4;
+    let okmaSidan = false;
+
+    // --- Okma constants (bot config from songpyeon/bot_config.json) ---
+    const OKMA_BASE_PATTERN = 'RpttttttttttttRptttttttttttttt';
+    const OKMA_BOT_DELAYS = {
+        initial_reaction_delay_ms: 100,
+        press_delays_ms: { 1: 50, 2: 50, 3: 50, 6: 50 }
+    };
+
+    // --- Image frame arrays ---
+    const pigGlowFrames = Array.from({ length: 10 }, (_, i) =>
+        `res/thanksgiving_pig_command_glow${String(i).padStart(2, '0')}.png`);
     const rabbitGlowFrames = Array.from({ length: 10 }, (_, i) =>
         `res/thanksgiving_rabbit_command_glow${String(i).padStart(2, '0')}.png`);
     const rabbitMissFrames = Array.from({ length: 16 }, (_, i) =>
         `res/thanksgiving_room_miss_rabbit${i}.png`);
 
-    // ── Utilities ──
+    // --- Utilities ---
     const preloadImages = (urls) => Promise.all(urls.map(url => new Promise(resolve => {
         const img = new Image();
         img.src = url;
@@ -50,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
     };
 
-    // ── Audio ──
+    // --- Audio ---
     const preloadSfx = async () => {
         if (!audioContext) return;
         try {
@@ -88,34 +104,113 @@ document.addEventListener('DOMContentLoaded', () => {
         src.start(0);
     };
 
-    // ── Pattern generation ──
+    // --- Controls ---
     const getEnabledCounts = () => {
         const checked = Array.from(document.querySelectorAll('.count-checkbox:checked'));
         return checked.length > 0 ? checked.map(cb => parseInt(cb.value, 10)) : [4];
     };
 
+    // --- Okma pattern helpers ---
+    const transformRabbitPatterns = (patternString, factor) => {
+        let result = '';
+        let i = 0;
+        while (i < patternString.length) {
+            let processed = false;
+            if (patternString.substring(i, i + 4) === 'tttt') {
+                result += Math.random() < factor ? 'rr' : 'tttt';
+                i += 4;
+                processed = true;
+            }
+            if (!processed && patternString.substring(i, i + 6) === 'tttttt') {
+                result += Math.random() < factor ? 'rttr' : 'tttttt';
+                i += 6;
+                processed = true;
+            }
+            if (!processed) {
+                if (patternString[i] === 't' && patternString[i + 1] === 't') {
+                    result += 'tt';
+                    i += 2;
+                } else {
+                    result += patternString[i];
+                    i++;
+                }
+            }
+        }
+        return result;
+    };
+
+    const adjustPatternDifficulty = (patternString, level) => {
+        if (level <= 0) return patternString;
+        const regex = /(Rp|tt)/g;
+        const segments = [];
+        let match;
+        while ((match = regex.exec(patternString)) !== null) {
+            segments.push({ type: match[0], index: match.index });
+        }
+        if (!segments.length) return patternString;
+
+        const budget = Math.floor(Math.random() * (level + 1));
+        const counts = new Array(segments.length).fill(0);
+        let remaining = budget;
+        const maxPer = budget >= 4 ? Math.floor(budget / 4) : budget;
+
+        while (remaining > 0) {
+            const candidates = segments.map((_, i) => i).filter(i => counts[i] < maxPer);
+            const pool = candidates.length ? candidates : segments.map((_, i) => i);
+            counts[pool[Math.floor(Math.random() * pool.length)]]++;
+            remaining--;
+        }
+
+        let result = '', lastIdx = 0;
+        segments.forEach((seg, si) => {
+            result += patternString.substring(lastIdx, seg.index);
+            result += seg.type.repeat(1 + counts[si]);
+            lastIdx = seg.index + seg.type.length;
+        });
+        result += patternString.substring(lastIdx);
+        return result;
+    };
+
+    const parseOkmaPattern = (str) => {
+        const pigNormal    = [1, 2, 3];
+        const rabbitNormal = [4, 5, 7];
+        return [...str].flatMap(c => {
+            if (c === 'R') return [pigNormal[Math.floor(Math.random() * 3)]];
+            if (c === 'p') return [6];
+            if (c === 't') return [8];
+            if (c === 'r') return [rabbitNormal[Math.floor(Math.random() * 3)]];
+            return [];
+        });
+    };
+
+    // --- Pattern generation ---
     const generatePattern = () => {
+        if (activeTab === 'okma') {
+            const adjusted    = adjustPatternDifficulty(OKMA_BASE_PATTERN, okmaDifficulty);
+            const rabbitFactor = 0.7;
+            const transformed = transformRabbitPatterns(adjusted, rabbitFactor);
+            return parseOkmaPattern(transformed);
+        }
         const counts = getEnabledCounts();
         const count  = counts[Math.floor(Math.random() * counts.length)];
         return Array(count).fill(8);
     };
 
+    // --- Score ---
     const calcScore = (count, totalTimeMs) =>
         Math.round((count * 1000 / totalTimeMs) ** 2);
 
-    // ── Score display ──
     const renderScoreDisplay = (el, score) => {
         if (!el) return;
         if (!score) { el.innerHTML = ''; return; }
         const { count, totalTimeMs, points } = score;
-        el.className = '';
         el.innerHTML = `
             <div class="score-time">${points}점</div>
             <div class="score-count">${count}개 · ${Math.round(totalTimeMs)}ms</div>
             <div class="score-avg">평균 ${Math.round(totalTimeMs / count)}ms</div>`;
     };
 
-    // ── Miss animation ──
+    // --- Miss animation ---
     const showMissAnimation = () => {
         if (missAnimationInterval) clearInterval(missAnimationInterval);
         const overlays = document.querySelectorAll('.miss-overlay');
@@ -132,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 60);
     };
 
-    // ── Glow indicator ──
+    // --- Glow indicator ---
     const updateGlowIndicator = () => {
         if (glowAnimationInterval) clearInterval(glowAnimationInterval);
         const glowEl = gameScreen.querySelector('.glow-indicator');
@@ -151,13 +246,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const rect     = target.getBoundingClientRect();
         glowEl.style.top  = `${rect.top  - areaRect.top  + rect.height / 2}px`;
         glowEl.style.left = `${rect.left - areaRect.left + rect.width  / 2}px`;
-        glowEl.src = rabbitGlowFrames[0];
+
+        const commandId = gamePattern[currentGameIndex];
+        const isPig = [1, 2, 3, 6].includes(commandId);
+        const frames = isPig ? pigGlowFrames : rabbitGlowFrames;
+        glowEl.src = frames[0];
         glowEl.classList.remove('hidden');
 
         let frame = 1;
         glowAnimationInterval = setInterval(() => {
-            glowEl.src = rabbitGlowFrames[frame];
-            frame = (frame + 1) % rabbitGlowFrames.length;
+            glowEl.src = frames[frame];
+            frame = (frame + 1) % frames.length;
         }, 80);
     };
 
@@ -169,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateGlowIndicator();
     };
 
-    // ── Scroll animation ──
+    // --- Scroll ---
     const animateScroll = (targetY) => {
         const scrollContent = gameScreen.querySelector('.scroll-content');
         if (!scrollContent) return;
@@ -191,10 +290,11 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(step);
     };
 
-    // ── Floor rendering ──
+    // --- Floor buttons ---
     const renderFloorButtons = () => {
         const floorContainer = gameScreen.querySelector('.floor-container');
         if (!floorContainer) return;
+        floorContainer.dataset.mode = 'mash';
 
         floorContainer.innerHTML = `
             <img src="res/thanksgiving_room_container_top.png" class="floor-top">
@@ -211,9 +311,53 @@ document.addEventListener('DOMContentLoaded', () => {
         floorContainer.querySelectorAll('.game-command').forEach(setupButtonListeners);
     };
 
-    // ── Game logic ──
-    const handleCorrectInput = () => {
-        playSfx(8);
+    const renderOkmaFloorButtons = () => {
+        const floorContainer = gameScreen.querySelector('.floor-container');
+        if (!floorContainer) return;
+        floorContainer.dataset.mode = 'okma';
+
+        floorContainer.innerHTML = `
+            <img src="res/thanksgiving_room_container_top.png" class="floor-top">
+            <div class="button-layout-container">
+                <div class="button-cluster">
+                    <div class="button-wrapper rabbit-cmd8">
+                        <img src="res/thanksgiving_room_command8_unpressed.png"
+                             class="floor-button game-command" data-command="command8">
+                    </div>
+                    <div class="button-wrapper rabbit-cmd4">
+                        <img src="res/thanksgiving_room_command4_unpressed.png"
+                             class="floor-button game-command" data-command="command4">
+                    </div>
+                    <div class="button-wrapper rabbit-cmd5">
+                        <img src="res/thanksgiving_room_command5_unpressed.png"
+                             class="floor-button game-command" data-command="command5">
+                    </div>
+                    <div class="button-wrapper rabbit-cmd7">
+                        <img src="res/thanksgiving_room_command7_unpressed.png"
+                             class="floor-button game-command" data-command="command7">
+                    </div>
+                </div>
+            </div>`;
+
+        floorContainer.querySelectorAll('.game-command').forEach(setupButtonListeners);
+    };
+
+    // --- Bot pig button visual flash ---
+    const flashBotButton = (commandId) => {
+        const btn = document.querySelector(`.bot-command[data-command="command${commandId}"]`);
+        if (!btn || !btn.src) return;
+        if (btn.src.includes('_unpressed.png')) {
+            btn.src = btn.src.replace('_unpressed.png', '_pressed.png');
+            setTimeout(() => {
+                if (btn.src && btn.src.includes('_pressed.png'))
+                    btn.src = btn.src.replace('_pressed.png', '_unpressed.png');
+            }, 80);
+        }
+    };
+
+    // --- Correct input (player or bot) ---
+    const handleCorrectInput = (commandId = 8) => {
+        playSfx(commandId);
 
         const icon = document.querySelectorAll('.command-icon')[currentGameIndex];
         if (icon) {
@@ -235,40 +379,90 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- Process next (mash mode: just update glow, success after 1s buffer) ---
     const processNextCommand = () => {
         if (gameFailed) return;
-
         if (currentGameIndex >= gamePattern.length) {
-            // 모두 눌렀음 — 1초 안에 추가 입력 없으면 성공
             mashSuccessTimer = setTimeout(() => onRoundEnd(true), 1000);
+            return;
+        }
+        updateGlowIndicator();
+    };
+
+    // --- Process next (okma mode: bot handles pig commands, player handles t=8) ---
+    const processOkmaNextCommand = () => {
+        if (gameFailed) return;
+        if (currentGameIndex >= gamePattern.length) {
+            onRoundEnd(true);
             return;
         }
 
         updateGlowIndicator();
+
+        const commandId = gamePattern[currentGameIndex];
+        const isPig = [1, 2, 3, 6].includes(commandId);
+
+        if (isPig) {
+            let delay = OKMA_BOT_DELAYS.press_delays_ms[commandId] || 50;
+            if (currentGameIndex === 0) {
+                delay += OKMA_BOT_DELAYS.initial_reaction_delay_ms;
+            }
+            okmaBotActionTimeout = setTimeout(() => {
+                if (gameFailed) return;
+                flashBotButton(commandId);
+                handleCorrectInput(commandId);
+                processOkmaNextCommand();
+            }, delay);
+        }
+        // commandId === 8: wait for player press
     };
 
+    // --- Player input ---
     const handlePlayerInput = (commandId) => {
         if (gameFailed) return;
+
+        if (activeTab === 'okma') {
+            if (currentGameIndex >= gamePattern.length) {
+                onRoundEnd(false);
+                return;
+            }
+            const expected = gamePattern[currentGameIndex];
+            if (![4, 5, 7, 8].includes(expected)) {
+                onRoundEnd(false); // pressed during pig bot's turn
+                return;
+            }
+
+            if (commandId !== expected) {
+                onRoundEnd(false); // wrong rabbit button
+                return;
+            }
+
+            if (okmaRabbitPressCount === 0) firstPressTime = performance.now();
+            okmaRabbitPressCount++;
+            handleCorrectInput(commandId);
+            processOkmaNextCommand();
+            return;
+        }
+
+        // Mash mode: only command 8
         if (commandId !== 8) return;
 
-        // 패턴을 초과해서 누르면 실패
         if (currentGameIndex >= gamePattern.length) {
             if (mashSuccessTimer) { clearTimeout(mashSuccessTimer); mashSuccessTimer = null; }
             onRoundEnd(false);
             return;
         }
 
-        // 첫 번째 입력: 시작 시간 기록
-        if (currentGameIndex === 0) {
-            firstPressTime = performance.now();
-        }
-
-        handleCorrectInput();
+        if (currentGameIndex === 0) firstPressTime = performance.now();
+        handleCorrectInput(8);
         processNextCommand();
     };
 
+    // --- Round end ---
     const onRoundEnd = (isSuccess) => {
         gameFailed = true;
+        if (okmaBotActionTimeout) { clearTimeout(okmaBotActionTimeout); okmaBotActionTimeout = null; }
+        if (roundTimer) { clearTimeout(roundTimer); roundTimer = null; }
 
         if (isSuccess) {
             if (glowAnimationInterval) clearInterval(glowAnimationInterval);
@@ -278,13 +472,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const scrollContent = gameScreen.querySelector('.scroll-content');
             if (scrollContent) scrollContent.style.display = 'none';
 
-            const totalTimeMs = lastPressTime - firstPressTime;
-            const count       = gamePattern.length;
-            const points      = calcScore(count, totalTimeMs);
-
-            lastScore = { count, totalTimeMs, points };
-            renderScoreDisplay(gameScreen.querySelector('#round-display'), lastScore);
-
+            if (activeTab === 'okma') {
+                showToast('성공');
+            } else {
+                const totalTimeMs = lastPressTime - firstPressTime;
+                const count       = gamePattern.length;
+                lastScore = { count, totalTimeMs, points: calcScore(count, totalTimeMs) };
+                renderScoreDisplay(gameScreen.querySelector('#round-display'), lastScore);
+            }
             playSfx('success');
         } else {
             showMissAnimation();
@@ -297,45 +492,59 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const startNewRound = () => showGameScreen();
 
-    // ── Show game screen ──
+    // --- Show game screen ---
     const showGameScreen = async () => {
-        // 진행 중인 타이머 모두 취소
-        if (nextRoundTimeoutId)   { clearTimeout(nextRoundTimeoutId);  nextRoundTimeoutId  = null; }
-        if (mashSuccessTimer)     { clearTimeout(mashSuccessTimer);     mashSuccessTimer    = null; }
-        if (glowAnimationInterval){ clearInterval(glowAnimationInterval); glowAnimationInterval = null; }
-        if (missAnimationInterval){ clearInterval(missAnimationInterval); missAnimationInterval = null; }
+        if (nextRoundTimeoutId)    { clearTimeout(nextRoundTimeoutId);   nextRoundTimeoutId   = null; }
+        if (mashSuccessTimer)      { clearTimeout(mashSuccessTimer);      mashSuccessTimer     = null; }
+        if (okmaBotActionTimeout)  { clearTimeout(okmaBotActionTimeout);  okmaBotActionTimeout = null; }
+        if (roundTimer)            { clearTimeout(roundTimer);            roundTimer           = null; }
+        if (glowAnimationInterval) { clearInterval(glowAnimationInterval); glowAnimationInterval = null; }
+        if (missAnimationInterval) { clearInterval(missAnimationInterval); missAnimationInterval = null; }
 
         if (audioContext && audioContext.state === 'suspended') audioContext.resume();
 
-        gamePattern      = generatePattern();
-        currentGameIndex = 0;
-        gameFailed       = false;
-        firstPressTime   = 0;
-        lastPressTime    = 0;
+        gamePattern          = generatePattern();
+        currentGameIndex     = 0;
+        gameFailed           = false;
+        firstPressTime       = 0;
+        lastPressTime        = 0;
+        okmaRabbitPressCount = 0;
 
         gameScreen.classList.remove('hidden');
 
-        // 패턴 행 생성 (6개씩 묶음)
+        const getIconPath = (id) => {
+            if ([1, 2, 3, 6].includes(id)) return `res/thanksgiving2024_room_command${id}.png`;
+            return `res/thanksgiving_room_command${id}.png`;
+        };
+
         const rows = [];
         for (let i = 0; i < gamePattern.length; i += 6) {
             const row = gamePattern.slice(i, i + 6);
             rows.push(`
                 <div class="command-box">
-                    ${row.map(() => `
+                    ${row.map(id => `
                         <div class="command-icon-wrapper">
-                            <img src="res/thanksgiving_room_command8.png" class="command-icon">
+                            <img src="${getIconPath(id)}" class="command-icon">
                             <img class="miss-overlay hidden">
                         </div>`).join('')}
                 </div>`);
         }
 
         const savedFloor = gameScreen.querySelector('.floor-container');
+        const savedMode  = savedFloor ? savedFloor.dataset.mode : null;
         if (savedFloor) savedFloor.remove();
 
+        const ceilingContent = activeTab === 'okma'
+            ? `<div class="timer-container">
+                   <img src="res/thanksgiving_room_time_bar.png" class="timer-bg">
+                   <div class="timer-gauge-wrapper"><div class="timer-gauge"></div></div>
+                   <img src="res/thanksgiving_room_time_gauge.png" class="timer-overlay">
+                   <img src="res/thanksgiving_room_time_icon.png" class="timer-icon">
+               </div>`
+            : `<div id="round-display"></div>`;
+
         gameScreen.innerHTML = `
-            <div class="ceiling">
-                <div id="round-display"></div>
-            </div>
+            <div class="ceiling">${ceilingContent}</div>
             <div class="game-area">
                 <img class="glow-indicator hidden">
                 <div class="scroll-viewport">
@@ -344,24 +553,48 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="floor-container"></div>`;
 
-        // 이전 점수 복원
-        renderScoreDisplay(gameScreen.querySelector('#round-display'), lastScore);
+        if (activeTab !== 'okma') {
+            renderScoreDisplay(gameScreen.querySelector('#round-display'), lastScore);
+        }
 
         await Promise.all(
             Array.from(gameScreen.querySelectorAll('.command-icon'))
                 .map(img => img.decode().catch(() => {}))
         );
 
-        if (savedFloor) {
+        if (savedFloor && savedMode === activeTab) {
             gameScreen.querySelector('.floor-container').replaceWith(savedFloor);
         } else {
-            renderFloorButtons();
+            if (activeTab === 'okma') renderOkmaFloorButtons();
+            else renderFloorButtons();
         }
 
         positionGlowReliably();
+
+        if (activeTab === 'okma') {
+            const timeLimit = okmaSidan ? 3 : 4;
+
+            roundTimer = setTimeout(() => {
+                if (gameFailed) return;
+                onRoundEnd(false);
+            }, timeLimit * 1000);
+
+            const gauge = gameScreen.querySelector('.timer-gauge');
+            if (gauge) {
+                gauge.style.transition = 'none';
+                gauge.style.width = '100%';
+                gauge.offsetHeight;
+                gauge.style.transition = `width ${timeLimit}s linear`;
+                gauge.style.width = '0%';
+            }
+
+            processOkmaNextCommand();
+        } else {
+            processNextCommand();
+        }
     };
 
-    // ── Button event wiring ──
+    // --- Button listeners ---
     function handlePress(event) {
         const t = event.currentTarget;
         t.classList.add('pressed');
@@ -395,7 +628,34 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.addEventListener('touchcancel', handleRelease);
     }
 
-    // ── Init ──
+    // --- Tab switching ---
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            if (tab === activeTab) return;
+            activeTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+            document.getElementById('mash-controls').classList.toggle('hidden', tab !== 'mash');
+            document.getElementById('okma-controls').classList.toggle('hidden', tab !== 'okma');
+            lastScore = null;
+            showGameScreen();
+        });
+    });
+
+    // --- Difficulty change ---
+    document.querySelectorAll('input[name="okma-diff"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            okmaDifficulty = parseInt(radio.value, 10);
+            if (activeTab === 'okma') { lastScore = null; showGameScreen(); }
+        });
+    });
+
+    document.getElementById('okma-sidan').addEventListener('change', function () {
+        okmaSidan = this.checked;
+        if (activeTab === 'okma') { lastScore = null; showGameScreen(); }
+    });
+
+    // --- Init ---
     const initializeApp = async () => {
         try {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -408,15 +668,45 @@ document.addEventListener('DOMContentLoaded', () => {
             'res/thanksgiving_room_command8_off.png',
             'res/thanksgiving_room_command8_pressed.png',
             'res/thanksgiving_room_command8_unpressed.png',
+            'res/thanksgiving_room_command4.png',
+            'res/thanksgiving_room_command4_off.png',
+            'res/thanksgiving_room_command4_pressed.png',
+            'res/thanksgiving_room_command4_unpressed.png',
+            'res/thanksgiving_room_command5.png',
+            'res/thanksgiving_room_command5_off.png',
+            'res/thanksgiving_room_command5_pressed.png',
+            'res/thanksgiving_room_command5_unpressed.png',
+            'res/thanksgiving_room_command7.png',
+            'res/thanksgiving_room_command7_off.png',
+            'res/thanksgiving_room_command7_pressed.png',
+            'res/thanksgiving_room_command7_unpressed.png',
+            'res/thanksgiving2024_room_command1.png',
+            'res/thanksgiving2024_room_command1_off.png',
+            'res/thanksgiving2024_room_command1_pressed.png',
+            'res/thanksgiving2024_room_command1_unpressed.png',
+            'res/thanksgiving2024_room_command2.png',
+            'res/thanksgiving2024_room_command2_off.png',
+            'res/thanksgiving2024_room_command2_pressed.png',
+            'res/thanksgiving2024_room_command2_unpressed.png',
+            'res/thanksgiving2024_room_command3.png',
+            'res/thanksgiving2024_room_command3_off.png',
+            'res/thanksgiving2024_room_command3_pressed.png',
+            'res/thanksgiving2024_room_command3_unpressed.png',
+            'res/thanksgiving2024_room_command6.png',
+            'res/thanksgiving2024_room_command6_off.png',
+            'res/thanksgiving2024_room_command6_pressed.png',
+            'res/thanksgiving2024_room_command6_unpressed.png',
             'res/thanksgiving_room_container_top.png',
             'res/thanksgiving_room_exit_unpressed.png',
+            'res/thanksgiving_room_time_bar.png',
+            'res/thanksgiving_room_time_gauge.png',
+            'res/thanksgiving_room_time_icon.png',
+            ...pigGlowFrames,
             ...rabbitGlowFrames,
             ...rabbitMissFrames,
         ]);
 
         loadingOverlay.classList.add('hidden');
-
-        // 로딩 완료 즉시 게임 시작
         showGameScreen();
     };
 

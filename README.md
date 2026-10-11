@@ -1,3 +1,1 @@
-# 플레이
-
-https://nuk42.github.io/rabbit
+# [플레이](https://nuk42.github.io/rabbit)

@@ -1,4 +1,11 @@
 {
+    "1": "res/audio/fullmoon_game_command_strong.mp3",
+    "2": "res/audio/fullmoon_game_command_weak.mp3",
+    "3": "res/audio/fullmoon_game_command_middle.mp3",
+    "4": "res/audio/rabbit_action_seasoning.mp3",
+    "5": "res/audio/fullmoon_game_command_water.mp3",
+    "6": "res/audio/fullmoon_game_command_up.mp3",
+    "7": "res/audio/fullmoon_game_command_massage.mp3",
     "8_0": "res/audio/rabbit_action_hit_dough1.mp3",
     "8_1": "res/audio/rabbit_action_hit_dough2.mp3",
     "8_2": "res/audio/rabbit_action_hit_dough3.mp3",

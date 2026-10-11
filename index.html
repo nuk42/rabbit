@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>연타 연습</title>
+    <title>연습</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -20,12 +20,23 @@
     <div id="app-container">
         <div id="game-screen"></div>
 
-        <!-- 체크박스: 게임 화면 위에 항상 표시 -->
-        <div id="game-controls">
-            <label class="count-label"><input type="checkbox" class="count-checkbox" value="4" checked> 4개</label>
-            <label class="count-label"><input type="checkbox" class="count-checkbox" value="6" checked> 6개</label>
-            <label class="count-label"><input type="checkbox" class="count-checkbox" value="8" checked> 8개</label>
-            <label class="count-label"><input type="checkbox" class="count-checkbox" value="10" checked> 10개</label>
+        <div id="top-ui">
+            <div id="tab-bar">
+                <button class="tab-btn active" data-tab="mash">연타 연습</button>
+                <button class="tab-btn" data-tab="okma">옥마패 연습</button>
+            </div>
+            <div id="mash-controls" class="tab-controls">
+                <label class="count-label"><input type="checkbox" class="count-checkbox" value="4" checked> 4개</label>
+                <label class="count-label"><input type="checkbox" class="count-checkbox" value="6" checked> 6개</label>
+                <label class="count-label"><input type="checkbox" class="count-checkbox" value="8" checked> 8개</label>
+                <label class="count-label"><input type="checkbox" class="count-checkbox" value="10" checked> 10개</label>
+            </div>
+            <div id="okma-controls" class="tab-controls hidden">
+                <label class="diff-label"><input type="radio" name="okma-diff" value="0"> 쉬움</label>
+                <label class="diff-label"><input type="radio" name="okma-diff" value="4" checked> 보통</label>
+                <label class="diff-label"><input type="radio" name="okma-diff" value="10"> 어려움</label>
+                <label class="diff-label okma-sidan-label"><input type="checkbox" id="okma-sidan"> 시단</label>
+            </div>
         </div>
 
     </div>
